@@ -74,7 +74,7 @@ def main():
             if not forbidden:
                 home_soup = get(start_url)
             else:
-                print("403 error, halting operation!")
+                print("403 Forbidden, halting operation!")
                 break
         for thread in threads:
             thread.join()

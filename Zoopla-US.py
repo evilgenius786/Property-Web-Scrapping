@@ -16,7 +16,7 @@ DB_PW = ''
 DB_NAME = 'ZooplaUS'
 TABLE_NAME = 'ZooplaUS'
 
-
+forbidden=False
 semaphore = threading.Semaphore(1)
 write = threading.Semaphore(1)
 outcsv = "Out-Zoopla-US.csv"
@@ -28,23 +28,22 @@ scraped = []
 
 def main():
     global semaphore, scraped
+    logo()
+    threadcount = input("Please enter number of threads: ")
+    if threadcount == "":
+        threadcount = 1
+    else:
+        threadcount = int(threadcount)
+        start_url = input("Please enter start URL: ")
+    if start_url == "":
+        start_url = "https://www.zoopla.co.uk/overseas/property/united-states/"
     while True:
-        logo()
+        semaphore = threading.Semaphore(threadcount)
         if not os.path.isdir("json"):
             os.mkdir("json")
         if not os.path.isfile(outcsv):
             with open(outcsv, 'w', newline='') as outfile:
                 csv.DictWriter(outfile, fieldnames=headers).writeheader()
-        threadcount = input("Please enter number of threads: ")
-        if threadcount == "":
-            threadcount = 1
-        else:
-            threadcount = int(threadcount)
-        semaphore = threading.Semaphore(threadcount)
-        start_url = input("Please enter start URL: ")
-        if start_url == "":
-            start_url = "https://www.zoopla.co.uk/overseas/property/united-states/"
-        # scraped = [x.replace(".json", "") for x in os.listdir('./json')]
         with open(outcsv, encoding='utf8', errors='ignore') as ofile:
             for line in csv.DictReader(ofile):
                 scraped.append(line['URL'])
@@ -55,40 +54,53 @@ def main():
         hope_soup = get(start_url)
         if "403 Forbidden" in hope_soup.text:
             print("======403 Forbidden======")
-            return
-        threads = []
-        while len(hope_soup.find_all('a', string="Next")) != 0:
-            print("Home URL", getText(hope_soup, 'span', 'listing-results-utils-count'), start_url)
-            for li in hope_soup.find_all('li', {"data-listing-id": True}):
-                lid = li["data-listing-id"]
-                url = f'https://www.zoopla.co.uk/overseas/details/{lid}/'
-                if url not in scraped:
-                    t = threading.Thread(target=scrape, args=(url,))
-                    threads.append(t)
-                    t.start()
+            forbidden=True
+        else:
+            threads = []
+            while len(hope_soup.find_all('a', string="Next")) != 0:
+                print("Home URL", getText(hope_soup, 'span', 'listing-results-utils-count'), start_url)
+                for li in hope_soup.find_all('li', {"data-listing-id": True}):
+                    lid = li["data-listing-id"]
+                    url = f'https://www.zoopla.co.uk/overseas/details/{lid}/'
+                    if url not in scraped:
+                        t = threading.Thread(target=scrape, args=(url,))
+                        threads.append(t)
+                        t.start()
+                    else:
+                        print("Already scraped", lid)
+                if forbidden:
+                    print("403 Forbidden. Halting operation!")
+                    break
                 else:
-                    print("Already scraped", lid)
-            start_url = "https://www.zoopla.co.uk" + hope_soup.find('a', string="Next")['href']
-            hope_soup = get(start_url)
-        for thread in threads:
-            thread.join()
-        print("Done with scraping, now adding stuff to DB.")
-        handler = DBHandler()
-        with open(outcsv) as outfile:
-            rows = [row for row in csv.DictReader(outfile)]
-            handler.bulkInsert(rows)
-        print("Done with DB insertion! Now waiting for 24 hrs")
+                    start_url = "https://www.zoopla.co.uk" + hope_soup.find('a', string="Next")['href']
+                    hope_soup = get(start_url)
+            for thread in threads:
+                thread.join()
+            print("Done with scraping, now adding stuff to DB.")
+            try:
+                handler = DBHandler()
+                with open(outcsv) as outfile:
+                    rows = [row for row in csv.DictReader(outfile)]
+                    handler.bulkInsert(rows)
+                print("Done with DB insertion! Now waiting for 24 hrs")
+            except:
+                traceback.print_exc()
+                print("Error in DB insertion!")
         time.sleep(86400)
 
 
 def scrape(url):
+    global forbidden
     with semaphore:
+        if forbidden:
+            return
         try:
             print("Working on", url)
             soup = get(url)
             if "403 Forbidden" in soup.text:
                 print("403 Forbidden", url)
-                return
+                forbidden = True
+                return            
             data = {
                 "Name": soup.find('title').text,
                 "PriceEUR": int(getText(soup, 'p', "ui-pricing__main-price ui-text-t4")[1:].replace(",", "")),
