@@ -56,26 +56,27 @@ def main():
         if "403 Forbidden" in home_soup.text:
             forbidden = True
             print("======403 Forbidden======")
-            return
-        threads = []
-        while len(home_soup.find_all('a', string="Next >")) != 0:
-            print("Home URL", start_url)
-            for div in home_soup.find_all('div', {"data-testid": 'search-result'}):
-                a = div.find('a', {"data-testid": "listing-details-link"})
-                url = f'https://www.zoopla.co.uk{a["href"]}'
-                if url not in scraped:
-                    agentphone = div.find('a', {"data-testid": "agent-phone-number"})
-                    t = threading.Thread(target=scrape, args=(url, agentphone.text if agentphone is not None else "",))
-                    threads.append(t)
-                    t.start()
+        else:
+            forbidden = False
+            threads = []
+            while len(home_soup.find_all('a', string="Next >")) != 0:
+                print("Home URL", start_url)
+                for div in home_soup.find_all('div', {"data-testid": 'search-result'}):
+                    a = div.find('a', {"data-testid": "listing-details-link"})
+                    url = f'https://www.zoopla.co.uk{a["href"]}'
+                    if url not in scraped:
+                        agentphone = div.find('a', {"data-testid": "agent-phone-number"})
+                        t = threading.Thread(target=scrape, args=(url, agentphone.text if agentphone is not None else "",))
+                        threads.append(t)
+                        t.start()
+                    else:
+                        print("Already scraped", a['href'])
+                start_url = "https://www.zoopla.co.uk" + home_soup.find('a', string="Next >")['href']
+                if not forbidden:
+                    home_soup = get(start_url)
                 else:
-                    print("Already scraped", a['href'])
-            start_url = "https://www.zoopla.co.uk" + home_soup.find('a', string="Next >")['href']
-            if not forbidden:
-                home_soup = get(start_url)
-            else:
-                print("403 Forbidden, halting operation!")
-                break
+                    print("403 Forbidden, halting operation!")
+                    break
         for thread in threads:
             thread.join()
         print("Done with scraping, now adding stuff to DB.")

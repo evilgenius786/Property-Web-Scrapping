@@ -56,6 +56,7 @@ def main():
             print("======403 Forbidden======")
             forbidden=True
         else:
+            forbidden = False
             threads = []
             while len(hope_soup.find_all('a', string="Next")) != 0:
                 print("Home URL", getText(hope_soup, 'span', 'listing-results-utils-count'), start_url)
