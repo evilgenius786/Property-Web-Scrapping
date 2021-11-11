@@ -15,35 +15,35 @@ DB_USER = 'root'
 DB_PW = ''
 DB_NAME = 'ZooplaUK'
 TABLE_NAME = 'ZooplaUK'
-
+forbidden = False
 semaphore = threading.Semaphore(1)
 write = threading.Semaphore(1)
 outcsv = "Out-Zoopla-UK.csv"
 errorfile = "Error-Zoopla-UK.txt"
 headers = ["Name", "PriceEUR", "FloorPlan", "Location", "PricePerArea", "Contact", "Description", "URL", "Features",
-           "Images",
-           "NearbyAmenities"]
+           "Images", "NearbyAmenities"]
 scraped = []
 
 
 def main():
-    global semaphore, scraped
+    global semaphore, scraped, forbidden
+    logo()
+    threadcount = input("Please enter number of threads: ")
+    if threadcount == "":
+        threadcount = 1
+    else:
+        threadcount = int(threadcount)
+    semaphore = threading.Semaphore(threadcount)
+    start_url = input("Please enter start URL: ")
+    if start_url == "":
+        start_url = "https://www.zoopla.co.uk/for-sale/property/london/"
+
     while True:
-        logo()
         if not os.path.isdir("json"):
             os.mkdir("json")
         if not os.path.isfile(outcsv):
             with open(outcsv, 'w', newline='') as outfile:
                 csv.DictWriter(outfile, fieldnames=headers).writeheader()
-        threadcount = input("Please enter number of threads: ")
-        if threadcount == "":
-            threadcount = 1
-        else:
-            threadcount = int(threadcount)
-        semaphore = threading.Semaphore(threadcount)
-        start_url = input("Please enter start URL: ")
-        if start_url == "":
-            start_url = "https://www.zoopla.co.uk/for-sale/property/london/"
         # scraped = [x.replace(".json", "") for x in os.listdir('./json')]
         with open(outcsv, encoding='utf8', errors='ignore') as ofile:
             for line in csv.DictReader(ofile):
@@ -54,6 +54,7 @@ def main():
         print("Loading data...")
         home_soup = get(start_url)
         if "403 Forbidden" in home_soup.text:
+            forbidden = True
             print("======403 Forbidden======")
             return
         threads = []
@@ -63,36 +64,44 @@ def main():
                 a = div.find('a', {"data-testid": "listing-details-link"})
                 url = f'https://www.zoopla.co.uk{a["href"]}'
                 if url not in scraped:
-                    t = threading.Thread(target=scrape,
-                                         args=(url,
-                                               div.find('a', {"data-testid": "agent-phone-number"}).text if div.find(
-                                                   'a', {
-                                                       "data-testid": "agent-phone-number"}) is not None else "",))
+                    agentphone = div.find('a', {"data-testid": "agent-phone-number"})
+                    t = threading.Thread(target=scrape, args=(url, agentphone.text if agentphone is not None else "",))
                     threads.append(t)
                     t.start()
                 else:
                     print("Already scraped", a['href'])
             start_url = "https://www.zoopla.co.uk" + home_soup.find('a', string="Next >")['href']
-            home_soup = get(start_url)
+            if not forbidden:
+                home_soup = get(start_url)
+            else:
+                print("403 error, halting operation!")
+                break
         for thread in threads:
             thread.join()
         print("Done with scraping, now adding stuff to DB.")
-        handler = DBHandler()
-        with open(outcsv) as outfile:
-            rows = [row for row in csv.DictReader(outfile)]
-            handler.bulkInsert(rows)
-        print("Done with DB insertion! Now waiting for 24 hrs")
+        try:
+            handler = DBHandler()
+            with open(outcsv) as outfile:
+                rows = [row for row in csv.DictReader(outfile)]
+                handler.bulkInsert(rows)
+            print("Done with DB insertion! Now waiting for 24 hrs")
+        except:
+            traceback.print_exc()
+            print("Error in DB insertion!")
         time.sleep(86400)
 
 
 def scrape(url, contact=""):
+    global forbidden
     with semaphore:
+        if forbidden:
+            return
         try:
             print("Working on", url)
             soup = get(url)
-
             if "403 Forbidden" in soup.text:
                 print("403 Forbidden", url)
+                forbidden = True
                 return
             js = json.loads(soup.find('script', {'id': '__NEXT_DATA__'}).string)
             ld = js['props']['pageProps']['data']['listingDetails']
@@ -100,16 +109,17 @@ def scrape(url, contact=""):
                         soup.find('span', {'data-testid': "beds-label"}).find_parent('div').find_parent(
                             'div').find_all('span')] if "beds-label" in str(soup) else []
             features.extend(ld['features']['bullets'])
+            price = soup.find('span', {'data-testid': "price"}).text[1:].replace(',', '')
+            priceperarea = soup.find('p', {"data-testid": "rentalfrequency-and-floorareaunit"})
             data = {
                 "Name": soup.find('title').text,
-                "PriceEUR": int(soup.find('span', {'data-testid': "price"}).text[1:].replace(',', '')),
+                "PriceEUR": int(price) if price.isnumeric() else 0,
                 "FloorPlan": " | ".join([f"https://lid.zoocdn.com/u/2400/1800/{x['filename']}" for x in
                                          ld['floorPlan']['image']] if ld['floorPlan']['image'] is not None else []),
                 "Location": soup.find('span', {'data-testid': 'address-label'}).text,
                 "Contact": contact,
                 "Description": ld['metaDescription'],
-                "PricePerArea": soup.find('p', {"data-testid": "rentalfrequency-and-floorareaunit"}).text if soup.find(
-                    'p', {"data-testid": "rentalfrequency-and-floorareaunit"}) is not None else 0,
+                "PricePerArea": priceperarea.text if priceperarea is not None else 0,
                 "URL": url,
                 "Features": " | ".join(features),
                 "Images": " | ".join(
