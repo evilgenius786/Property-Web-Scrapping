@@ -81,7 +81,7 @@ def main():
         print("Done with scraping, now adding stuff to DB.")
         try:
             handler = DBHandler()
-            with open(outcsv) as outfile:
+            with open(outcsv,encoding='utf8',errors='ignore') as outfile:
                 rows = [row for row in csv.DictReader(outfile)]
                 handler.bulkInsert(rows)
             print("Done with DB insertion! Now waiting for 24 hrs")
