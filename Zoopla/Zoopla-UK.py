@@ -37,7 +37,7 @@ def main():
     start_url = input("Please enter start URL: ")
     if start_url == "":
         start_url = "https://www.zoopla.co.uk/for-sale/property/london/"
-
+    threads = []
     while True:
         if not os.path.isdir("json"):
             os.mkdir("json")
@@ -58,7 +58,6 @@ def main():
             print("======403 Forbidden======")
         else:
             forbidden = False
-            threads = []
             while len(home_soup.find_all('a', string="Next >")) != 0:
                 print("Home URL", start_url)
                 for div in home_soup.find_all('div', {"data-testid": 'search-result'}):

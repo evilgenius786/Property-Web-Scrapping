@@ -33,7 +33,7 @@ def main():
         threadcount = 1
     else:
         threadcount = int(threadcount)
-        start_url = input("Please enter start URL: ")
+    start_url = input("Please enter start URL: ")
     if start_url == "":
         start_url = "https://www.zoopla.co.uk/overseas/property/united-states/"
     while True:
