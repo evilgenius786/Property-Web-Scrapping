@@ -15,8 +15,7 @@ DB_USER = 'root'
 DB_PW = ''
 DB_NAME = 'ZooplaUS'
 TABLE_NAME = 'ZooplaUS'
-
-forbidden=False
+forbidden = False
 semaphore = threading.Semaphore(1)
 write = threading.Semaphore(1)
 outcsv = "Out-Zoopla-US.csv"
@@ -54,7 +53,7 @@ def main():
         hope_soup = get(start_url)
         if "403 Forbidden" in hope_soup.text:
             print("======403 Forbidden======")
-            forbidden=True
+            forbidden = True
         else:
             forbidden = False
             threads = []
@@ -80,7 +79,7 @@ def main():
             print("Done with scraping, now adding stuff to DB.")
             try:
                 handler = DBHandler()
-                with open(outcsv) as outfile:
+                with open(outcsv,encoding='utf8',errors='ignore') as outfile:
                     rows = [row for row in csv.DictReader(outfile)]
                     handler.bulkInsert(rows)
                 print("Done with DB insertion! Now waiting for 24 hrs")
@@ -101,7 +100,7 @@ def scrape(url):
             if "403 Forbidden" in soup.text:
                 print("403 Forbidden", url)
                 forbidden = True
-                return            
+                return
             data = {
                 "Name": soup.find('title').text,
                 "PriceEUR": int(getText(soup, 'p', "ui-pricing__main-price ui-text-t4")[1:].replace(",", "")),
