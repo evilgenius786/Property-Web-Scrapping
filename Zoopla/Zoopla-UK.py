@@ -200,7 +200,8 @@ class DBHandler:
         else:
             return True
 
-    def getInt(self, value):
+    @staticmethod
+    def getInt(value):
         try:
             return int(value)
         except Exception:

@@ -26,7 +26,7 @@ scraped = []
 
 
 def main():
-    global semaphore, scraped
+    global semaphore, scraped, forbidden
     logo()
     threadcount = input("Please enter number of threads: ")
     if threadcount == "":
@@ -187,7 +187,8 @@ class DBHandler:
         else:
             return True
 
-    def getInt(self, value):
+    @staticmethod
+    def getInt(value):
         try:
             return int(value)
         except Exception:
