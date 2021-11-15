@@ -1,0 +1,11 @@
+.venv
+.idea/
+env
+
+Zoopla/json
+/json/
+*.csv
+
+
+error.txt
+Error-Zoopla-UK.txt
