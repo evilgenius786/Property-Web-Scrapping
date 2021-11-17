@@ -1,4 +1,5 @@
 import csv
+import datetime
 import os
 import threading
 import time
@@ -23,6 +24,7 @@ errorfile = "Error-Zoopla-US.txt"
 headers = ["Name", "PriceEUR", "PriceUSD", "PricePerArea", "Location", "Contact", "Description", "URL", "Features",
            "Images"]
 scraped = []
+wait403 = 10  # time to wait in case of 403 error in seconds
 
 
 def main():
@@ -46,61 +48,59 @@ def main():
         with open(outcsv, encoding='utf8', errors='ignore') as ofile:
             for line in csv.DictReader(ofile):
                 scraped.append(line['URL'])
-        print("Already scraped listings", scraped)
+        print(datetime.datetime.now(), "Already scraped listings", scraped)
         if "page_size" not in start_url:
             start_url += "&page_size=100" if "?" in start_url else "?page_size=100"
-        print("Loading data...")
+        print(datetime.datetime.now(), "Loading data...")
         hope_soup = get(start_url)
-        if "403 Forbidden" in hope_soup.text:
-            print("======403 Forbidden======")
+        while "403 Forbidden" in hope_soup.text:
+            print(datetime.datetime.now(), "======403 Forbidden======")
             forbidden = True
-        else:
-            forbidden = False
-            threads = []
-            while len(hope_soup.find_all('a', string="Next")) != 0:
-                print("Home URL", getText(hope_soup, 'span', 'listing-results-utils-count'), start_url)
-                for li in hope_soup.find_all('li', {"data-listing-id": True}):
-                    lid = li["data-listing-id"]
-                    url = f'https://www.zoopla.co.uk/overseas/details/{lid}/'
-                    if url not in scraped:
-                        t = threading.Thread(target=scrape, args=(url,))
-                        threads.append(t)
-                        t.start()
-                    else:
-                        print("Already scraped", lid)
-                if forbidden:
-                    print("403 Forbidden. Halting operation!")
-                    break
+            hope_soup = get(start_url)
+        forbidden = False
+        threads = []
+        while len(hope_soup.find_all('a', string="Next")) != 0:
+            print(datetime.datetime.now(), "Home URL", getText(hope_soup, 'span', 'listing-results-utils-count'),
+                  start_url)
+            for li in hope_soup.find_all('li', {"data-listing-id": True}):
+                lid = li["data-listing-id"]
+                url = f'https://www.zoopla.co.uk/overseas/details/{lid}/'
+                if url not in scraped:
+                    t = threading.Thread(target=scrape, args=(url,))
+                    threads.append(t)
+                    t.start()
                 else:
-                    start_url = "https://www.zoopla.co.uk" + hope_soup.find('a', string="Next")['href']
-                    hope_soup = get(start_url)
-            for thread in threads:
-                thread.join()
-            print("Done with scraping, now adding stuff to DB.")
-            try:
-                handler = DBHandler()
-                with open(outcsv, encoding='utf8', errors='ignore') as outfile:
-                    rows = [row for row in csv.DictReader(outfile)]
-                    handler.bulkInsert(rows)
-                print("Done with DB insertion! Now waiting for 24 hrs")
-            except:
-                traceback.print_exc()
-                print("Error in DB insertion!")
+                    print(datetime.datetime.now(), "Already scraped", lid)
+            while "403 Forbidden" in hope_soup.text:
+                forbidden = True
+                print(datetime.datetime.now(), f"403 Forbidden! Retrying after {wait403} seconds...")
+                time.sleep(wait403)
+                hope_soup = get(start_url)
+            forbidden = False
+            start_url = "https://www.zoopla.co.uk" + hope_soup.find('a', string="Next")['href']
+            hope_soup = get(start_url)
+        for thread in threads:
+            thread.join()
+        print(datetime.datetime.now(), "Done with scraping, now adding stuff to DB.")
+        try:
+            handler = DBHandler()
+            with open(outcsv, encoding='utf8', errors='ignore') as outfile:
+                rows = [row for row in csv.DictReader(outfile)]
+                handler.bulkInsert(rows)
+            print(datetime.datetime.now(), "Done with DB insertion! Now waiting for 24 hrs")
+        except:
+            traceback.print_exc()
+            print(datetime.datetime.now(), "Error in DB insertion!")
         time.sleep(86400)
 
 
 def scrape(url):
-    global forbidden
     with semaphore:
-        if forbidden:
-            return
         try:
-            print("Working on", url)
+            print(datetime.datetime.now(), "Working on", url)
             soup = get(url)
-            if "403 Forbidden" in soup.text:
-                print("403 Forbidden", url)
-                forbidden = True
-                return
+            while forbidden:
+                time.sleep(wait403)
             data = {
                 "Name": soup.find('title').text,
                 "PriceEUR": int(getText(soup, 'p', "ui-pricing__main-price ui-text-t4")[1:].replace(",", "")),
@@ -114,13 +114,13 @@ def scrape(url):
                     [li.text.strip() for li in soup.find_all('li', {"class": "dp-features-list__item"})]),
                 "Images": " | ".join([img['src'] for img in soup.find_all('img', {'class': 'dp-gallery__image'})]),
             }
-            print(json.dumps(data, indent=4))
+            print(datetime.datetime.now(), json.dumps(data, indent=4))
             with open(f"./json/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
                 json.dump(data, outfile, indent=4)
             append(data)
             scraped.append(url.split("/")[-2])
         except:
-            print("Error on", url)
+            print(datetime.datetime.now(), "Error on", url)
             with open(errorfile, 'a') as efile:
                 efile.write(url + "\n")
             traceback.print_exc()
@@ -172,7 +172,7 @@ class DBHandler:
 
     def executeSQL(self, sql, args=None):
         if self.DB_CONN is None:
-            print("Please open connection first!")
+            print(datetime.datetime.now(), "Please open connection first!")
             return
         with self.DB_CONN.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute(sql, args)
@@ -218,19 +218,19 @@ class DBHandler:
     def insert(self, data):
         if not self.exists(data['URL']):
             self.executeSQL(self.createQuery(data))
-            print(data['URL'], "inserted!")
+            print(datetime.datetime.now(), data['URL'], "inserted!")
         else:
-            print(data['URL'], 'already in db!')
+            print(datetime.datetime.now(), data['URL'], 'already in db!')
 
     def bulkInsert(self, rows):
         self.scraped = [row['URL'] for row in self.getAllData()]
-        print("Already scraped", self.scraped)
+        print(datetime.datetime.now(), "Already scraped", self.scraped)
         for row in rows:
             if row['URL'] not in self.scraped:
                 self.executeSQL(self.createQuery(row))
-                print(row['URL'], "inserted!")
+                print(datetime.datetime.now(), row['URL'], "inserted!")
             else:
-                print(row['URL'], "already exists!")
+                print(datetime.datetime.now(), row['URL'], "already exists!")
 
     def getAllData(self):
         sql = f"SELECT * FROM {self.TABLE_NAME}"

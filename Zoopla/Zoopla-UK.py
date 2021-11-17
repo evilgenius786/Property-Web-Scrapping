@@ -1,4 +1,5 @@
 import csv
+import datetime
 import os
 import threading
 import time
@@ -23,7 +24,7 @@ errorfile = "Error-Zoopla-UK.txt"
 headers = ["Name", "PriceEUR", "FloorPlan", "Location", "PricePerArea", "Contact", "Description", "URL", "Features",
            "Images", "NearbyAmenities"]
 scraped = []
-
+wait403=10
 
 def main():
     global semaphore, scraped, forbidden
@@ -53,9 +54,11 @@ def main():
             start_url += "&page_size=100" if "?" in start_url else "?page_size=100"
         print("Loading data...")
         home_soup = get(start_url)
-        if "403 Forbidden" in home_soup.text:
+        while "403 Forbidden" in home_soup.text:
             forbidden = True
             print("======403 Forbidden======")
+            time.sleep(wait403)
+            home_soup = get(start_url)
         else:
             forbidden = False
             while len(home_soup.find_all('a', string="Next >")) != 0:
@@ -70,12 +73,14 @@ def main():
                         t.start()
                     else:
                         print("Already scraped", a['href'])
+                while "403 Forbidden" in home_soup.text:
+                    forbidden = True
+                    print(datetime.datetime.now(), f"403 Forbidden! Retrying after {wait403} seconds...")
+                    time.sleep(wait403)
+                    hope_soup = get(start_url)
+                forbidden = False
                 start_url = "https://www.zoopla.co.uk" + home_soup.find('a', string="Next >")['href']
-                if not forbidden:
-                    home_soup = get(start_url)
-                else:
-                    print("403 Forbidden, halting operation!")
-                    break
+                home_soup = get(start_url)
         for thread in threads:
             thread.join()
         print("Done with scraping, now adding stuff to DB.")
@@ -94,15 +99,11 @@ def main():
 def scrape(url, contact=""):
     global forbidden
     with semaphore:
-        if forbidden:
-            return
+        while forbidden:
+            time.sleep(wait403)
         try:
             print("Working on", url)
             soup = get(url)
-            if "403 Forbidden" in soup.text:
-                print("403 Forbidden", url)
-                forbidden = True
-                return
             js = json.loads(soup.find('script', {'id': '__NEXT_DATA__'}).string)
             ld = js['props']['pageProps']['data']['listingDetails']
             features = [span.text for span in
