@@ -1,4 +1,5 @@
 import csv
+import datetime
 import os
 import re
 import threading
@@ -25,32 +26,41 @@ headers = ["Name", "PriceUSD", "PricePerArea", "Location", "Contact", "Descripti
            "Images", "Airports"]
 scraped = []
 
+wait403 = 10
+forbidden = False
+
 
 def main():
-    global semaphore, scraped
+    global semaphore, scraped, forbidden
+    logo()
+    threadcount = input("Please enter number of threads: ")
+    if threadcount == "":
+        threadcount = 1
+    else:
+        threadcount = int(threadcount)
     while True:
-        logo()
-        if not os.path.isdir("json"):
-            os.mkdir("json")
+        semaphore = threading.Semaphore(threadcount)
+        start_url = "https://www.rightmove.co.uk/overseas-property-for-sale/USA.html"
+        if not os.path.isdir("JSON"):
+            os.mkdir("JSON")
         if not os.path.isfile(outcsv):
             with open(outcsv, 'w', newline='') as outfile:
                 csv.DictWriter(outfile, fieldnames=headers).writeheader()
-        threadcount = input("Please enter number of threads: ")
-        if threadcount == "":
-            threadcount = 1
-        else:
-            threadcount = int(threadcount)
-        semaphore = threading.Semaphore(threadcount)
-        start_url = input("Please enter start URL: ")
-        if start_url == "":
-            start_url = "https://www.rightmove.co.uk/overseas-property-for-sale/USA.html"
-        # scraped = [x.replace(".json", "") for x in os.listdir('./json')]
         with open(outcsv, encoding='utf8', errors='ignore') as ofile:
             for line in csv.DictReader(ofile):
-                scraped.append(line['URL'])
+                try:
+                    scraped.append(line['URL'])
+                except:
+                    pass
         print("Already scraped listings", scraped)
         print("Loading data...")
         soup = get(start_url)
+        while "403 Forbidden" in soup.text:
+            print(datetime.datetime.now(), "======403 Forbidden======")
+            forbidden = True
+            soup = get(start_url)
+            time.sleep(wait403)
+        forbidden = False
         perpage = int((re.search('numberOfPropertiesPerPage":"(.*?)","radius', str(soup.contents)).group(1)))
         total = int((getText(soup, "span", 'class', "searchHeader-resultCount")).replace(",", ""))
         print("Total pages:", total)
@@ -82,17 +92,24 @@ def main():
 
 
 def scrape(url):
+    global forbidden
     with semaphore:
         try:
             print("Working on", url)
             soup = get(url)
+            forbidden = retry = "403 Forbidden" in soup.text
+            while forbidden:
+                time.sleep(wait403)
+            if retry:
+                soup = get(url)
             js = json.loads(soup.find_all('script')[-3].string.strip().replace('window.PAGE_MODEL = ', ''))
             features = js['propertyData']['keyFeatures']
             features.extend([f"{x['title']}: {x['primaryText']}" for x in js['propertyData']['infoReelItems']])
             data = {
                 "Name": soup.find('title').text,
                 "PriceUSD": int(js['propertyData']['prices']['primaryPrice'][6:].replace(",", "")),
-                "PricePerArea": js['propertyData']['prices']['pricePerSqFt'].replace('\u00a3', "EUR ") if js['propertyData']['prices']['pricePerSqFt'] is not None else "",
+                "PricePerArea": js['propertyData']['prices']['pricePerSqFt'].replace('\u00a3', "EUR ") if
+                js['propertyData']['prices']['pricePerSqFt'] is not None else "",
                 "Location": js['propertyData']['address']['displayAddress'],
                 "Contact": js['propertyData']['contactInfo']['telephoneNumbers']['localNumber'],
                 "Description": js['propertyData']['text']['description'],
@@ -103,7 +120,7 @@ def scrape(url):
                     [f"{x['name']} : {int(x['distance'])} {x['unit']}" for x in js['propertyData']['nearestAirports']])
             }
             print(json.dumps(data, indent=4))
-            with open(f"./json/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
+            with open(f"./JSON/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
                 json.dump(data, outfile, indent=4)
             append(data)
             scraped.append(url)
@@ -128,8 +145,6 @@ def getText(soup, tag, attrib, Class):
 
 
 def get(url):
-    # with open('index.html') as ifile:
-    #     return BeautifulSoup(ifile.read(), 'lxml')
     return BeautifulSoup(cfscrape.create_scraper().get(url).text, 'lxml')
 
 

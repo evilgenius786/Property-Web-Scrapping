@@ -14,17 +14,17 @@ from pymysql.converters import escape_string
 DB_HOST = "localhost"
 DB_USER = 'root'
 DB_PW = ''
-DB_NAME = 'ZooplaUK'
-TABLE_NAME = 'ZooplaUK'
+DB_NAME = 'ZooplaUK_Commercial'
+TABLE_NAME = 'ZooplaUK_Commercial'
 forbidden = False
 semaphore = threading.Semaphore(1)
 write = threading.Semaphore(1)
-outcsv = "Out-Zoopla-UK.csv"
-errorfile = "Error-Zoopla-UK.txt"
-headers = ["Name", "PriceEUR", "FloorPlan", "Location", "PricePerArea", "Contact", "Description", "URL", "Features",
-           "Images", "NearbyAmenities"]
+outcsv = "Out-Zoopla-UK-Commercial.csv"
+errorfile = "Error-Zoopla-UK-Commercial.txt"
+headers = ["Name", "PriceEUR", "PricePerArea", "FloorPlan", "Location", "Contact", "Description", "URL", "Features",
+           "Images"]
 scraped = []
-wait403 = 10
+wait403 = 10  # time to wait in case of 403 error in seconds
 
 
 def main():
@@ -35,10 +35,9 @@ def main():
         threadcount = 1
     else:
         threadcount = int(threadcount)
-    semaphore = threading.Semaphore(threadcount)
-    threads = []
     while True:
-        start_url = "https://www.zoopla.co.uk/for-sale/property/london/?page_size=100"
+        start_url = "https://www.zoopla.co.uk/for-sale/commercial/property/london/?page_size=100"
+        semaphore = threading.Semaphore(threadcount)
         if not os.path.isdir("JSON"):
             os.mkdir("JSON")
         if not os.path.isfile(outcsv):
@@ -50,98 +49,100 @@ def main():
                     scraped.append(line['URL'])
                 except:
                     pass
-        print("Already scraped listings", scraped)
-        print("Loading data...")
-        home_soup = get(start_url)
-        while "403 Forbidden" in home_soup.text:
+        print(datetime.datetime.now(), "Already scraped listings", scraped)
+        print(datetime.datetime.now(), "Loading data...")
+        hope_soup = get(start_url)
+        while "403 Forbidden" in hope_soup.text:
+            print(datetime.datetime.now(), "======403 Forbidden======")
             forbidden = True
-            print("======403 Forbidden======")
+            hope_soup = get(start_url)
             time.sleep(wait403)
-            home_soup = get(start_url)
         forbidden = False
-        while len(home_soup.find_all('a', string="Next >")) != 0:
-            print("Home URL", start_url)
-            for div in home_soup.find_all('div', {"data-testid": 'search-result'}):
-                a = div.find('a', {"data-testid": "listing-details-link"})
-                url = f'https://www.zoopla.co.uk{a["href"]}'
+        threads = []
+        while len(hope_soup.find_all('a', string="Next")) != 0:
+            print(datetime.datetime.now(), "Home URL", getText(hope_soup, 'span', 'listing-results-utils-count'),
+                  start_url)
+            for li in hope_soup.find_all('li', {"data-listing-id": True}):
+                lid = li["data-listing-id"]
+                url = f'https://www.zoopla.co.uk/overseas/details/{lid}/'
                 if url not in scraped:
-                    agentphone = div.find('a', {"data-testid": "agent-phone-number"})
-                    t = threading.Thread(target=scrape,
-                                         args=(url, agentphone.text if agentphone is not None else "",))
+                    t = threading.Thread(target=scrape, args=(url,))
                     threads.append(t)
                     t.start()
                 else:
-                    print("Already scraped", a['href'])
-            while "403 Forbidden" in home_soup.text:
+                    print(datetime.datetime.now(), "Already scraped", lid)
+            while "403 Forbidden" in hope_soup.text:
                 forbidden = True
                 print(datetime.datetime.now(), f"403 Forbidden! Retrying after {wait403} seconds...")
                 time.sleep(wait403)
                 hope_soup = get(start_url)
             forbidden = False
-            start_url = "https://www.zoopla.co.uk" + home_soup.find('a', string="Next >")['href']
-            home_soup = get(start_url)
+            start_url = "https://www.zoopla.co.uk" + hope_soup.find('a', string="Next")['href']
+            hope_soup = get(start_url)
         for thread in threads:
             thread.join()
-        print("Done with scraping, now adding stuff to DB.")
+        print(datetime.datetime.now(), "Done with scraping, now adding stuff to DB.")
         try:
             handler = DBHandler()
             with open(outcsv, encoding='utf8', errors='ignore') as outfile:
                 rows = [row for row in csv.DictReader(outfile)]
                 handler.bulkInsert(rows)
-            print("Done with DB insertion! Now waiting for 24 hrs")
+            print(datetime.datetime.now(), "Done with DB insertion! Now waiting for 24 hrs")
         except:
             traceback.print_exc()
-            print("Error in DB insertion!")
+            print(datetime.datetime.now(), "Error in DB insertion!")
         time.sleep(86400)
 
 
-def scrape(url, contact=""):
-    global forbidden
+def scrape(url):
     with semaphore:
-        while forbidden:
-            time.sleep(wait403)
         try:
-            print("Working on", url)
+            print(datetime.datetime.now(), "Working on", url)
             soup = get(url)
             forbidden = retry = "403 Forbidden" in soup.text
             while forbidden:
                 time.sleep(wait403)
             if retry:
                 soup = get(url)
-            js = json.loads(soup.find('script', {'id': '__NEXT_DATA__'}).string)
-            ld = js['props']['pageProps']['data']['listingDetails']
-            features = [span.text for span in
-                        soup.find('span', {'data-testid': "beds-label"}).find_parent('div').find_parent(
-                            'div').find_all('span')] if "beds-label" in str(soup) else []
-            features.extend(ld['features']['bullets'])
-            price = soup.find('span', {'data-testid': "price"}).text[1:].replace(',', '')
-            priceperarea = soup.find('p', {"data-testid": "rentalfrequency-and-floorareaunit"})
             data = {
                 "Name": soup.find('title').text,
-                "PriceEUR": int(price) if price.isnumeric() else 0,
-                "FloorPlan": " | ".join([f"https://lid.zoocdn.com/u/2400/1800/{x['filename']}" for x in
-                                         ld['floorPlan']['image']] if ld['floorPlan']['image'] is not None else []),
-                "Location": soup.find('span', {'data-testid': 'address-label'}).text,
-                "Contact": contact,
-                "Description": ld['metaDescription'],
-                "PricePerArea": priceperarea.text if priceperarea is not None else 0,
+                "PriceEUR": getPrice(soup, "EUR"),
+                "Location": getText(soup, 'h2', 'ui-property-summary__address'),
+                "Contact": getText(soup, 'p', 'ui-agent__tel ui-agent__text').split("  ")[-1],
+                "Description": getText(soup, 'div', 'dp-description__text'),
+                "PricePerArea": getText(soup, 'p', 'ui-pricing__area-price').replace("\u00a3", "EUR ").replace("(",
+                                                                                                               "").replace(
+                    ")", ""),
                 "URL": url,
-                "Features": " | ".join(features),
-                "Images": " | ".join(
-                    [f"https://lid.zoocdn.com/u/2400/1800/{x['filename']}" for x in ld['propertyImage']]),
-                "NearbyAmenities": " | ".join([li.text for li in
-                                               soup.find('ul', {"data-testid": "amenities-list"}).find_all('li')])
+                "FloorPlan": " | ".join(
+                    [a['href'] for a in soup.find_all('a', {'id': "ui-modal-gallery-trigger-floorplan"})]),
+                "Features": " | ".join(
+                    [li.text.strip().replace("\n", " ") for li in
+                     soup.find_all('li', {"class": "dp-features-list__item"})]),
+                "Images": " | ".join([img['src'] for img in soup.find_all('img', {'class': 'dp-gallery__image'})]),
             }
-            print(json.dumps(data, indent=4))
+            print(datetime.datetime.now(), json.dumps(data, indent=4))
             with open(f"./JSON/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
                 json.dump(data, outfile, indent=4)
             append(data)
-            scraped.append(url)
+            scraped.append(url.split("/")[-2])
         except:
-            print("Error on", url)
+            print(datetime.datetime.now(), "Error on", url)
             with open(errorfile, 'a') as efile:
                 efile.write(url + "\n")
             traceback.print_exc()
+
+
+def getPrice(soup, currency):
+    if currency == "EUR":
+        price = getText(soup, 'p', "ui-pricing__main-price ui-text-t4")[1:].replace(",", "")
+    else:
+        price = getText(soup, 'p', "ui-pricing__alt-price")[3:].replace(",", "")
+    try:
+        return int(price)
+    except:
+        print("Error in parsing price", price)
+        return 0
 
 
 def append(data):
@@ -190,7 +191,7 @@ class DBHandler:
 
     def executeSQL(self, sql, args=None):
         if self.DB_CONN is None:
-            print("Please open connection first!")
+            print(datetime.datetime.now(), "Please open connection first!")
             return
         with self.DB_CONN.cursor(pymysql.cursors.DictCursor) as cursor:
             cursor.execute(sql, args)
@@ -216,39 +217,39 @@ class DBHandler:
         self.executeSQL(f"""CREATE TABLE IF NOT EXISTS {self.TABLE_NAME} (
         Name TEXT, 
         PriceEUR INTEGER, 
+        FloorPlan TEXT,
         PricePerArea TEXT,
         Location TEXT,
         Contact TEXT,
         Description Text,
         URL Text,
         Features Text,
-        Images Text,
-        NearbyAmenities Text
+        Images Text
         )""")
 
     def createQuery(self, data):
-        return f"""INSERT INTO {self.TABLE_NAME} (Name, PriceEUR, PricePerArea, Location,Contact, Description,
-         URL, Features, Images, NearbyAmenities) VALUES 
-        ('{escape_string(data["Name"])}','{data["PriceEUR"]}','{data["PricePerArea"]}',
+        return f"""INSERT INTO {self.TABLE_NAME} (Name, PriceEUR, FloorPlan, PricePerArea, Location, Contact, Description,
+         URL, Features, Images) VALUES 
+        ('{escape_string(data["Name"])}','{data["PriceEUR"]}','{data["FloorPlan"]}','{data["PricePerArea"]}',
         '{escape_string(data["Location"])}','{data["Contact"]}','{escape_string(data["Description"])}',
-        '{escape_string(data["URL"])}','{escape_string(data["Features"])}','{data["Images"]}','{escape_string(data["NearbyAmenities"])}');"""
+        '{escape_string(data["URL"])}','{escape_string(data["Features"])}','{data["Images"]}');"""
 
     def insert(self, data):
         if not self.exists(data['URL']):
             self.executeSQL(self.createQuery(data))
-            print(data['URL'], "inserted!")
+            print(datetime.datetime.now(), data['URL'], "inserted!")
         else:
-            print(data['URL'], 'already in db!')
+            print(datetime.datetime.now(), data['URL'], 'already in db!')
 
     def bulkInsert(self, rows):
         self.scraped = [row['URL'] for row in self.getAllData()]
-        print("Already scraped", self.scraped)
+        print(datetime.datetime.now(), "Already scraped", self.scraped)
         for row in rows:
             if row['URL'] not in self.scraped:
                 self.executeSQL(self.createQuery(row))
-                print(row['URL'], "inserted!")
+                print(datetime.datetime.now(), row['URL'], "inserted!")
             else:
-                print(row['URL'], "already exists!")
+                print(datetime.datetime.now(), row['URL'], "already exists!")
 
     def getAllData(self):
         sql = f"SELECT * FROM {self.TABLE_NAME}"
@@ -256,6 +257,7 @@ class DBHandler:
 
 
 def logo():
+    os.system('cls')
     os.system('color 0a')
     print(rf"""
         __________                   .__          
@@ -265,7 +267,7 @@ def logo():
         /_______ \____/ \____/|   __/|____(____  /
                 \/            |__|             \/ 
 ===========================================================
-      zoopla.co.uk (UK) scraper by github.com/evilgenius786
+      zoopla.co.uk (US) scraper by github.com/evilgenius786
 ===========================================================
 [+] Resumable
 [+] Multithreaded

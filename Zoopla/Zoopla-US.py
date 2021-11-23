@@ -35,13 +35,11 @@ def main():
         threadcount = 1
     else:
         threadcount = int(threadcount)
-    start_url = input("Please enter start URL: ")
-    if start_url == "":
-        start_url = "https://www.zoopla.co.uk/overseas/property/united-states/"
     while True:
+        start_url = "https://www.zoopla.co.uk/overseas/property/united-states/?page_size=100"
         semaphore = threading.Semaphore(threadcount)
-        if not os.path.isdir("json"):
-            os.mkdir("json")
+        if not os.path.isdir("JSON"):
+            os.mkdir("JSON")
         if not os.path.isfile(outcsv):
             with open(outcsv, 'w', newline='') as outfile:
                 csv.DictWriter(outfile, fieldnames=headers).writeheader()
@@ -49,8 +47,6 @@ def main():
             for line in csv.DictReader(ofile):
                 scraped.append(line['URL'])
         print(datetime.datetime.now(), "Already scraped listings", scraped)
-        if "page_size" not in start_url:
-            start_url += "&page_size=100" if "?" in start_url else "?page_size=100"
         print(datetime.datetime.now(), "Loading data...")
         hope_soup = get(start_url)
         while "403 Forbidden" in hope_soup.text:
@@ -93,18 +89,21 @@ def main():
             print(datetime.datetime.now(), "Error in DB insertion!")
         time.sleep(86400)
 
-
 def scrape(url):
+    global forbidden
     with semaphore:
         try:
             print(datetime.datetime.now(), "Working on", url)
             soup = get(url)
+            forbidden = retry = "403 Forbidden" in soup.text
             while forbidden:
                 time.sleep(wait403)
+            if retry:
+                soup = get(url)
             data = {
                 "Name": soup.find('title').text,
-                "PriceEUR": int(getText(soup, 'p', "ui-pricing__main-price ui-text-t4")[1:].replace(",", "")),
-                "PriceUSD": int(getText(soup, 'p', "ui-pricing__alt-price")[3:].replace(",", "")),
+                "PriceEUR": getPrice(soup, "EUR"),
+                "PriceUSD": getPrice(soup, "USD"),
                 "PricePerArea": getText(soup, 'p', 'ui-pricing__area-price').replace("(", "").replace(")", ""),
                 "Location": getText(soup, 'h2', 'ui-property-summary__address'),
                 "Contact": getText(soup, 'p', 'ui-agent__tel ui-agent__text').split("  ")[-1],
@@ -115,7 +114,7 @@ def scrape(url):
                 "Images": " | ".join([img['src'] for img in soup.find_all('img', {'class': 'dp-gallery__image'})]),
             }
             print(datetime.datetime.now(), json.dumps(data, indent=4))
-            with open(f"./json/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
+            with open(f"./JSON/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
                 json.dump(data, outfile, indent=4)
             append(data)
             scraped.append(url.split("/")[-2])
@@ -124,6 +123,19 @@ def scrape(url):
             with open(errorfile, 'a') as efile:
                 efile.write(url + "\n")
             traceback.print_exc()
+
+
+def getPrice(soup, currency):
+    if currency == "EUR":
+        price = getText(soup, 'p', "ui-pricing__main-price ui-text-t4")[1:].replace(",", "")
+    else:
+        price = getText(soup, 'p', "ui-pricing__alt-price")[3:].replace(",", "")
+    try:
+        return int(price)
+    except:
+        print("Error in parsing price", price)
+        return 0
+
 
 
 def append(data):
