@@ -55,7 +55,10 @@ def main():
         while "403 Forbidden" in hope_soup.text:
             print(datetime.datetime.now(), "======403 Forbidden======")
             forbidden = True
-            hope_soup = get(start_url)
+            try:
+                hope_soup = get(start_url)
+            except:
+                pass
             time.sleep(wait403)
         forbidden = False
         threads = []
@@ -75,7 +78,10 @@ def main():
                 forbidden = True
                 print(datetime.datetime.now(), f"403 Forbidden! Retrying after {wait403} seconds...")
                 time.sleep(wait403)
-                hope_soup = get(start_url)
+                try:
+                    hope_soup = get(start_url)
+                except:
+                    pass
             forbidden = False
             start_url = "https://www.zoopla.co.uk" + hope_soup.find('a', string="Next")['href']
             hope_soup = get(start_url)
@@ -95,12 +101,14 @@ def main():
 
 
 def scrape(url):
+    global forbidden
     with semaphore:
         try:
             print(datetime.datetime.now(), "Working on", url)
             soup = get(url)
             forbidden = retry = "403 Forbidden" in soup.text
             while forbidden:
+                print("403 Forbidden")
                 time.sleep(wait403)
             if retry:
                 soup = get(url)
