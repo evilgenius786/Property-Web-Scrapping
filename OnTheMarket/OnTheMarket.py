@@ -1,13 +1,12 @@
 import csv
 import datetime
+import json
 import os
-import re
 import threading
 import time
 import traceback
 
 import cfscrape
-import json
 import pymysql
 from bs4 import BeautifulSoup
 from pymysql.converters import escape_string
