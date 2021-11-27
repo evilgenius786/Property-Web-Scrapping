@@ -30,7 +30,7 @@ forbidden = False
 
 
 def main():
-    # scrape("https://www.uklandandfarms.co.uk/rural-property-for-sale/south-east/oxfordshire/48982_lar210016/")
+    # scrape("https://www.uklandandfarms.co.uk/rural-property-for-sale/west-midlands/herefordshire/hereford-0u7jc3er/")
     # return
     global semaphore, scraped, forbidden
     logo()
@@ -256,7 +256,7 @@ def logo():
                  | |__| | | . \  | |____   / ____ \  | |     
                   \____/  |_|\_\ |______| /_/    \_\ |_|                                          
 =================================================================================
-         UkLandAndFarms.co.uk (US) scraper by github.com/evilgenius786
+         UkLandAndFarms.co.uk scraper by github.com/evilgenius786
 =================================================================================
 [+] Resumable
 [+] Multithreaded
