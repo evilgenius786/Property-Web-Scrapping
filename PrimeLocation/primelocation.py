@@ -90,7 +90,7 @@ def scrape(url):
                     "PropertyInfo": info
                 }
                 print(json.dumps(data, indent=4))
-                with open(f"./JSON/{url.split('/')[-2]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
+                with open(f"./JSON/{url.split('/')[-1]}.json", 'w', encoding='utf8', errors='ignore') as outfile:
                     json.dump(data, outfile, indent=4)
                 append(data)
                 scraped.append(url)
