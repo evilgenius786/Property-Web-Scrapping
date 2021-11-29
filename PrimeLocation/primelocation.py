@@ -41,6 +41,7 @@ def scrape(url):
                 forbidden = retry = "403 Forbidden" in soup.text
                 while forbidden:
                     time.sleep(wait403)
+                    print("403")
                 if retry:
                     soup = get(url)
                 try:
@@ -148,9 +149,17 @@ def main():
                         print("Already scraped", url)
                 start_url = f"https://www.primelocation.com/for-sale/commercial/property/uk/?page_size=100&pn={i}"
                 # time.sleep(5)
+                while "403 Forbidden" in soup.text:
+                    forbidden = True
+                    print(datetime.datetime.now(), f"403 Forbidden! Retrying after {wait403} seconds...")
+                    time.sleep(wait403)
+                    soup = get(start_url)
+                forbidden = False
+                start_url = "https://www.zoopla.co.uk" + soup.find('a', string="Next >")['href']
                 soup = get(start_url)
             for thread in threads:
                 thread.join()
+
             print("Done with scraping, now adding stuff to DB.")
         except KeyboardInterrupt:
             print("Scraping interrupted! Now adding stuff to DB.")
