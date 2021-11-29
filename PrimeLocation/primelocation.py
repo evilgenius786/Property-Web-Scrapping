@@ -155,7 +155,6 @@ def main():
                     time.sleep(wait403)
                     soup = get(start_url)
                 forbidden = False
-                start_url = "https://www.zoopla.co.uk" + soup.find('a', string="Next >")['href']
                 soup = get(start_url)
             for thread in threads:
                 thread.join()
