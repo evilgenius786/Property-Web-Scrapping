@@ -41,7 +41,7 @@ def scrape(url):
                 forbidden = retry = "403 Forbidden" in soup.text
                 while forbidden:
                     time.sleep(wait403)
-                    print("403")
+                    print(datetime.datetime.now(),"403")
                 if retry:
                     soup = get(url)
                 try:
